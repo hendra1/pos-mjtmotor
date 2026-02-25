@@ -243,6 +243,12 @@ class MenuService
                         permissions: [ 'nexopos.create.products-labels' ]
                     ),
                     AsideMenu::subMenu(
+                        label: __( 'Generate Barcodes' ),
+                        identifier: 'generate-barcodes',
+                        href: ns()->url( '/dashboard/products/generate-barcodes' ),
+                        permissions: [ 'nexopos.read.products' ]
+                    ),
+                    AsideMenu::subMenu(
                         label: __( 'Categories' ),
                         identifier: 'categories',
                         permissions: [ 'nexopos.read.categories' ],
