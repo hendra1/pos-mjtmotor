@@ -78,8 +78,8 @@
     </div>
 </div>
 
-{{-- Hidden Print Area --}}
-<div id="print-area" class="hidden"></div>
+{{-- Hidden Print Iframe --}}
+<iframe id="print-frame" style="position:absolute;top:-9999px;left:-9999px;width:0;height:0;border:none;"></iframe>
 
 @endsection
 
@@ -92,11 +92,31 @@
             height: auto;
         }
 
-        /* 80mm Thermal Print Styles */
+        /* Override NexoPOS component's hardcoded 'border border-black' on label items.
+           Use multiple selectors to beat Tailwind specificity. */
+        #label-printing-paper .item,
+        #label-printing-paper .item.border,
+        #label-printing-paper .item.border-black,
+        div[id="label-printing-paper"] div.item {
+            border: none !important;
+            border-width: 0 !important;
+            border-style: none !important;
+            border-color: transparent !important;
+            outline: none !important;
+            box-shadow: none !important;
+        }
+
+        /* 80mm Thermal Print Styles — Continuous Roll */
         @media print {
             * {
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
+            }
+
+            html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 80mm;
             }
 
             body > *:not(#print-area) {
@@ -105,18 +125,31 @@
 
             #print-area {
                 display: block !important;
+                width: 72mm;
+                margin: 0 auto !important;
+                padding: 0 !important;
             }
 
+            /* No forced page breaks — let thermal roll print continuously */
             .barcode-label {
+                box-sizing: border-box;
                 width: 72mm;
-                min-height: 30mm;
-                padding: 2mm 2mm;
+                padding: 4mm 2mm;
                 margin: 0;
-                page-break-inside: avoid;
+                border: none !important;
+                outline: none !important;
                 display: flex;
                 flex-direction: column;
+                justify-content: center;
                 align-items: center;
                 font-family: Arial, sans-serif;
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+
+            /* Spacing between labels — first label has no top padding */
+            .barcode-label + .barcode-label {
+                padding-top: 4mm;
             }
 
             .barcode-label .product-name {
@@ -151,13 +184,6 @@
                 font-weight: bold;
                 text-align: center;
                 margin-top: 0.5mm;
-            }
-
-            .print-separator {
-                border: none;
-                border-top: 1px dashed #ccc;
-                margin: 1mm 0;
-                width: 100%;
             }
 
             @page {
@@ -294,6 +320,10 @@
          * Get barcode type string for JsBarcode
          */
         function getBarcodeFormat( type ) {
+            const normalizedType = String(type || '')
+                .toLowerCase()
+                .replace(/[\s_-]/g, '');
+
             const map = {
                 'ean13':   'EAN13',
                 'ean8':    'EAN8',
@@ -303,49 +333,79 @@
                 'upca':    'UPC',
                 'upce':    'UPCE',
             };
-            return map[type] || 'CODE128';
+            return map[normalizedType] || 'CODE128';
+        }
+
+        function isValidForFormat( barcode, format ) {
+            const value = String(barcode || '').trim();
+            const digitsOnly = /^\d+$/;
+
+            switch (format) {
+                case 'EAN13':
+                    return digitsOnly.test(value) && value.length === 13;
+                case 'EAN8':
+                    return digitsOnly.test(value) && value.length === 8;
+                case 'UPC':
+                    return digitsOnly.test(value) && value.length === 12;
+                case 'UPCE':
+                    return digitsOnly.test(value) && (value.length === 6 || value.length === 8);
+                default:
+                    return true;
+            }
+        }
+
+        function resolveFormat( barcode, type ) {
+            const preferredFormat = getBarcodeFormat(type);
+            return isValidForFormat(barcode, preferredFormat) ? preferredFormat : 'CODE128';
         }
 
         /**
-         * Generate SVG barcode using JsBarcode
+         * Render a barcode inside the given SVG element
          */
-        function generateBarcode( barcode, type ) {
-            if (!barcode) {
-                return '<div class="text-xs text-red-400 italic">No barcode set</div>';
-            }
+        function renderBarcodeIntoElement( svgEl, barcode, type, options = {} ) {
+            const barcodeValue = String(barcode || '').trim();
+            if (!svgEl || !barcodeValue) return false;
 
-            const svgId = 'bc-' + Math.random().toString(36).substr(2, 9);
-            const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            svgEl.id = svgId;
+            const baseOptions = {
+                format: resolveFormat(barcodeValue, type),
+                margin: 2,
+            };
+
+            const barcodeOptions = Object.assign({}, baseOptions, options);
 
             try {
-                JsBarcode(svgEl, barcode, {
-                    format: getBarcodeFormat(type),
-                    width: 1.5,
-                    height: 40,
-                    displayValue: true,
-                    fontSize: 10,
-                    margin: 2,
-                    textMargin: 2,
-                });
-                return svgEl.outerHTML;
+                JsBarcode(svgEl, barcodeValue, barcodeOptions);
+                return true;
             } catch (e) {
-                // If barcode type fails, try CODE128
                 try {
-                    JsBarcode(svgEl, barcode, {
-                        format: 'CODE128',
+                    JsBarcode(svgEl, barcodeValue, Object.assign({}, barcodeOptions, { format: 'CODE128' }));
+                    return true;
+                } catch (e2) {
+                    return false;
+                }
+            }
+        }
+
+        function renderQueueBarcodes() {
+            const svgs = queueTbody.querySelectorAll('.js-queue-barcode');
+            svgs.forEach(function(svgEl) {
+                const ok = renderBarcodeIntoElement(
+                    svgEl,
+                    svgEl.dataset.barcode,
+                    svgEl.dataset.barcodeType,
+                    {
                         width: 1.5,
                         height: 40,
                         displayValue: true,
                         fontSize: 10,
-                        margin: 2,
                         textMargin: 2,
-                    });
-                    return svgEl.outerHTML;
-                } catch(e2) {
-                    return '<div class="text-xs text-red-400 italic">Invalid barcode</div>';
+                    }
+                );
+
+                if (!ok && svgEl.parentElement) {
+                    svgEl.parentElement.innerHTML = '<div class="text-xs text-red-400 italic">Invalid barcode</div>';
                 }
-            }
+            });
         }
 
         /**
@@ -364,14 +424,14 @@
             productQueue.classList.remove('hidden');
 
             queueTbody.innerHTML = queue.map((item, index) => {
-                const barcodeSvg = generateBarcode(item.barcode, item.barcodeType);
+                const barcodeValue = String(item.barcode || '').trim();
                 return `<tr class="border-b hover:bg-gray-50" data-index="${index}">
                     <td class="py-2 px-2">
                         <div class="font-medium">${escapeHtml(item.name)}</div>
                         <div class="text-xs text-gray-500">${escapeHtml(item.price ? formatCurrency(item.price) : '')}</div>
                     </td>
                     <td class="py-2 px-2">
-                        <span class="text-xs font-mono">${escapeHtml(item.barcode || '—')}</span>
+                        <span class="text-xs font-mono">${escapeHtml(barcodeValue || '—')}</span>
                     </td>
                     <td class="py-2 px-2">
                         <span class="text-xs uppercase">${escapeHtml(item.barcodeType || 'code128')}</span>
@@ -384,7 +444,9 @@
                     </td>
                     <td class="py-2 px-2 text-center">
                         <div class="barcode-preview flex justify-center" style="max-width:120px;margin:auto">
-                            ${barcodeSvg}
+                            ${barcodeValue
+                                ? `<svg class="js-queue-barcode" data-barcode="${escapeHtml(barcodeValue)}" data-barcode-type="${escapeHtml(item.barcodeType || 'code128')}"></svg>`
+                                : '<div class="text-xs text-red-400 italic">No barcode set</div>'}
                         </div>
                     </td>
                     <td class="py-2 px-2 text-center">
@@ -395,6 +457,8 @@
                     </td>
                 </tr>`;
             }).join('');
+
+            renderQueueBarcodes();
         }
 
         /**
@@ -416,38 +480,6 @@
         };
 
         /**
-         * Generate barcode SVG for print (larger dimensions)
-         */
-        function generateBarcodePrint( barcode, type ) {
-            if (!barcode) return '<div style="text-align:center;font-size:8pt;color:red;">No barcode</div>';
-
-            const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            try {
-                JsBarcode(svgEl, barcode, {
-                    format: getBarcodeFormat(type),
-                    width: 2,
-                    height: 50,
-                    displayValue: false,
-                    margin: 2,
-                });
-                return svgEl.outerHTML;
-            } catch(e) {
-                try {
-                    JsBarcode(svgEl, barcode, {
-                        format: 'CODE128',
-                        width: 2,
-                        height: 50,
-                        displayValue: false,
-                        margin: 2,
-                    });
-                    return svgEl.outerHTML;
-                } catch(e2) {
-                    return '<div style="text-align:center;font-size:8pt;color:red;">Invalid barcode</div>';
-                }
-            }
-        }
-
-        /**
          * Build the print HTML content
          */
         function buildPrintContent() {
@@ -455,22 +487,43 @@
 
             queue.forEach(item => {
                 for (let i = 0; i < item.copies; i++) {
-                    const barcodeSvg = generateBarcodePrint(item.barcode, item.barcodeType);
+                    const barcodeValue = String(item.barcode || '').trim();
                     const price      = item.price ? formatCurrency(item.price) : '';
 
                     html += `<div class="barcode-label">
                         <div class="product-name">${escapeHtml(item.name)}</div>
                         ${price ? `<div class="product-price">${escapeHtml(price)}</div>` : ''}
-                        <div class="barcode-img">${barcodeSvg}</div>
-                        <div class="barcode-value">${escapeHtml(item.barcode || '')}</div>
+                        <div class="barcode-img">
+                            ${barcodeValue
+                                ? `<svg class="js-print-barcode" data-barcode="${escapeHtml(barcodeValue)}" data-barcode-type="${escapeHtml(item.barcodeType || 'code128')}"></svg>`
+                                : '<div style="text-align:center;font-size:8pt;color:red;">No barcode</div>'}
+                        </div>
+                        <div class="barcode-value">${escapeHtml(barcodeValue)}</div>
                     </div>`;
-
-                    // Add separator between labels (not after last one)
-                    html += `<hr class="print-separator" />`;
                 }
             });
 
             return html;
+        }
+
+        function renderPrintBarcodes() {
+            const svgs = printArea.querySelectorAll('.js-print-barcode');
+            svgs.forEach(function(svgEl) {
+                const ok = renderBarcodeIntoElement(
+                    svgEl,
+                    svgEl.dataset.barcode,
+                    svgEl.dataset.barcodeType,
+                    {
+                        width: 2,
+                        height: 50,
+                        displayValue: false,
+                    }
+                );
+
+                if (!ok && svgEl.parentElement) {
+                    svgEl.parentElement.innerHTML = '<div style="text-align:center;font-size:8pt;color:red;">Invalid barcode</div>';
+                }
+            });
         }
 
         /**
@@ -540,19 +593,131 @@
             }
         });
 
-        // Print
+        // Print — write into a hidden iframe to avoid popup blockers and NexoPOS component bleed
         printBtn.addEventListener('click', function() {
             if (queue.length === 0) {
                 alert('{{ __("Please add at least one product to the queue.") }}');
                 return;
             }
 
-            printArea.innerHTML = buildPrintContent();
-            printArea.classList.remove('hidden');
-            window.print();
-            printArea.classList.add('hidden');
+            const labelsHtml = buildPrintContent();
+            const frame = document.getElementById('print-frame');
+            const doc   = frame.contentDocument || frame.contentWindow.document;
+
+            const printStyles = `
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body { width: 80mm; font-family: Arial, sans-serif; background: #fff; }
+                .barcode-label {
+                    width: 72mm;
+                    padding: 4mm 2mm;
+                    border: none;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                    page-break-inside: avoid;
+                    break-inside: avoid;
+                }
+                .barcode-label + .barcode-label {
+                    padding-top: 4mm;
+                }
+                .barcode-label .product-name {
+                    font-size: 8pt;
+                    font-weight: bold;
+                    text-align: center;
+                    width: 100%;
+                    margin-bottom: 1mm;
+                    word-break: break-word;
+                    line-height: 1.2;
+                }
+                .barcode-label .barcode-img { width: 100%; text-align: center; }
+                .barcode-label .barcode-img svg { width: 65mm !important; height: auto !important; }
+                .barcode-label .barcode-value {
+                    font-size: 7pt;
+                    text-align: center;
+                    margin-top: 0.5mm;
+                    letter-spacing: 1px;
+                }
+                .barcode-label .product-price {
+                    font-size: 9pt;
+                    font-weight: bold;
+                    text-align: center;
+                    margin-top: 0.5mm;
+                }
+                @page { size: 80mm auto; margin: 3mm 4mm; }
+                @media print {
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                }
+            `;
+
+            doc.open();
+            doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>${printStyles}</style></head><body>${labelsHtml}</body></html>`);
+            doc.close();
+
+            // Load JsBarcode inside the iframe, render SVGs, then print
+            const script = doc.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js';
+            script.onload = function() {
+                const iframeWin = frame.contentWindow;
+                doc.querySelectorAll('.js-print-barcode').forEach(function(svgEl) {
+                    const barcode = svgEl.dataset.barcode;
+                    const type    = svgEl.dataset.barcodeType;
+                    if (!barcode) return;
+                    try {
+                        iframeWin.JsBarcode(svgEl, barcode, {
+                            format: resolveFormat(barcode, type),
+                            width: 2, height: 50, displayValue: false,
+                        });
+                    } catch(e) {
+                        try {
+                            iframeWin.JsBarcode(svgEl, barcode, {
+                                format: 'CODE128',
+                                width: 2, height: 50, displayValue: false,
+                            });
+                        } catch(e2) { /* ignore */ }
+                    }
+                });
+                iframeWin.focus();
+                iframeWin.print();
+            };
+            doc.head.appendChild(script);
         });
 
+    })();
+
+    // Strip borders from NexoPOS label items both on load and on Vue re-renders
+    (function() {
+        function removeLabelBorders() {
+            var items = document.querySelectorAll('#label-printing-paper .item');
+            items.forEach(function(el) {
+                el.style.setProperty('border', 'none', 'important');
+                el.style.setProperty('border-width', '0', 'important');
+                el.style.setProperty('border-style', 'none', 'important');
+                el.style.setProperty('border-color', 'transparent', 'important');
+                el.style.setProperty('outline', 'none', 'important');
+                el.style.setProperty('box-shadow', 'none', 'important');
+            });
+        }
+
+        // Run on DOM ready and after a short delay (Vue mounts asynchronously)
+        document.addEventListener('DOMContentLoaded', function() {
+            removeLabelBorders();
+            setTimeout(removeLabelBorders, 500);
+            setTimeout(removeLabelBorders, 1500);
+
+            // Watch for Vue re-renders (Apply Settings click changes itemsToPrint)
+            var observer = new MutationObserver(function() {
+                removeLabelBorders();
+            });
+
+            // Observe the whole document body for label-printing-paper appearing
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: false,
+            });
+        });
     })();
     </script>
 @endsection

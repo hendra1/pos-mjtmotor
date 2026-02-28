@@ -28,6 +28,41 @@ class BarcodeService
 
     const TYPE_UPCE = 'upce';
 
+    private function resolveGeneratorType( BarcodeGeneratorPNG $generator, string $type ): int
+    {
+        switch ( $type ) {
+            case self::TYPE_EAN8:
+                return $generator::TYPE_EAN_8;
+            case self::TYPE_EAN13:
+                return $generator::TYPE_EAN_13;
+            case self::TYPE_CODABAR:
+                return $generator::TYPE_CODABAR;
+            case self::TYPE_CODE128:
+                return $generator::TYPE_CODE_128;
+            case self::TYPE_CODE39:
+                return $generator::TYPE_CODE_39;
+            case self::TYPE_CODE11:
+                return $generator::TYPE_CODE_11;
+            case self::TYPE_UPCA:
+                return $generator::TYPE_UPC_A;
+            case self::TYPE_UPCE:
+                return $generator::TYPE_UPC_E;
+            default:
+                return $generator::TYPE_EAN_8;
+        }
+    }
+
+    private function generateBinaryWithFallback( BarcodeGeneratorPNG $generator, string $barcode, string $type, int $height = 30 ): string
+    {
+        $realType = $this->resolveGeneratorType( $generator, $type );
+
+        try {
+            return $generator->getBarcode( $barcode, $realType, 3, $height );
+        } catch ( Exception $exception ) {
+            return $generator->getBarcode( $barcode, $generator::TYPE_CODE_128, 3, $height );
+        }
+    }
+
     /**
      * Will generate code
      * for provided barcode type
@@ -83,28 +118,7 @@ class BarcodeService
     {
         $generator = new BarcodeGeneratorPNG;
 
-        switch ( $type ) {
-            case 'ean8': $realType = $generator::TYPE_EAN_8;
-                break;
-            case 'ean13': $realType = $generator::TYPE_EAN_13;
-                break;
-            case 'codabar': $realType = $generator::TYPE_CODABAR;
-                break;
-            case 'code128': $realType = $generator::TYPE_CODE_128;
-                break;
-            case 'code39': $realType = $generator::TYPE_CODE_39;
-                break;
-            case 'code11': $realType = $generator::TYPE_CODE_11;
-                break;
-            case 'upca': $realType = $generator::TYPE_UPC_A;
-                break;
-            case 'upce': $realType = $generator::TYPE_UPC_E;
-                break;
-            default: $realType = $generator::TYPE_EAN_8;
-                break;
-        }
-
-        return base64_encode( $generator->getBarcode( $barcode, $realType, 3, $height ) );
+        return base64_encode( $this->generateBinaryWithFallback( $generator, $barcode, (string) $type, $height ) );
     }
 
     /**
@@ -118,31 +132,10 @@ class BarcodeService
     {
         $generator = new BarcodeGeneratorPNG;
 
-        switch ( $type ) {
-            case 'ean8': $realType = $generator::TYPE_EAN_8;
-                break;
-            case 'ean13': $realType = $generator::TYPE_EAN_13;
-                break;
-            case 'codabar': $realType = $generator::TYPE_CODABAR;
-                break;
-            case 'code128': $realType = $generator::TYPE_CODE_128;
-                break;
-            case 'code39': $realType = $generator::TYPE_CODE_39;
-                break;
-            case 'code11': $realType = $generator::TYPE_CODE_11;
-                break;
-            case 'upca': $realType = $generator::TYPE_UPC_A;
-                break;
-            case 'upce': $realType = $generator::TYPE_UPC_E;
-                break;
-            default: $realType = $generator::TYPE_EAN_8;
-                break;
-        }
-
         try {
             Storage::disk( 'public' )->put(
                 Hook::filter( 'ns-media-path', 'products/barcodes/' . $barcode . '.png' ),
-                $generator->getBarcode( $barcode, $realType, 3, 30 )
+                $this->generateBinaryWithFallback( $generator, (string) $barcode, (string) $type, 30 )
             );
         } catch ( Exception $exception ) {
             $insight = ( $exception->getMessage() ?: __( 'N/A' ) );

@@ -8,21 +8,22 @@ $pos_vat          =   $order->settings?->where( 'key', 'ns_pos_vat' )->first()?-
 ?>
 <div class="w-full h-full">
     <div class="w-full md:w-1/2 lg:w-1/3 shadow-lg bg-white p-2 mx-auto">
-        <div class="flex items-center justify-center">
+        <div class="flex flex-col items-center justify-center">
             @if ( empty( ns()->option->get( 'ns_invoice_receipt_logo' ) ) )
             <h3 class="text-3xl font-bold">{{ ns()->option->get( 'ns_store_name' ) }}</h3>
             @else
             <img src="{{ ns()->option->get( 'ns_invoice_receipt_logo' ) }}" alt="{{ ns()->option->get( 'ns_store_name' ) }}">
             @endif
+            @if( ns()->option->get( 'ns_store_address' ) )
+            <p class="text-xs text-center text-gray-600 mt-1">
+                {!! nl2br( e( ns()->option->get( 'ns_store_address' ) ) ) !!}
+            </p>
+            @endif
         </div>
         <div class="p-2 border-b border-gray-700">
-            <div class="flex flex-wrap -mx-2 text-sm">
-                <div class="px-2 w-1/2">
-                    {!! nl2br( $ordersService->orderTemplateMapping( 'ns_invoice_receipt_column_a', $order ) ) !!}
-                </div>
-                <div class="px-2 w-1/2">
-                    {!! nl2br( $ordersService->orderTemplateMapping( 'ns_invoice_receipt_column_b', $order ) ) !!}
-                </div>
+            <div class="flex justify-between text-xs">
+                <span>{{ \Carbon\Carbon::now()->timezone( ns()->option->get( 'ns_datetime_timezone', 'UTC' ) )->format( 'd/m/Y H:i' ) }}</span>
+                <span>{{ $order->code }}</span>
             </div>
         </div>
         <div class="table w-full">
@@ -159,6 +160,11 @@ $pos_vat          =   $order->settings?->where( 'key', 'ns_pos_vat' )->first()?-
             @endif
             <div class="pt-6 pb-4 text-center text-gray-800 text-sm">
                 {{ ns()->option->get( 'ns_invoice_receipt_footer' ) }}
+            </div>
+            <div class="pt-2 pb-4 text-center text-gray-700 text-xs">
+                Terima kasih<br>
+                Barang yang sudah dibeli, tidak dapat<br>
+                ditukar atau dikembalikan
             </div>
         </div>
     </div>
