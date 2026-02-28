@@ -634,6 +634,17 @@ class ProductsController extends DashboardController
         ] );
     }
 
+    public function generateBarcodes()
+    {
+        ns()->restrict( [ 'nexopos.read.products' ] );
+
+        return view::make( 'pages.dashboard.products.generate-barcodes', [
+            'title' => __( 'Generate Barcodes' ),
+            'description' => __( 'Generate and print product barcodes for thermal printer.' ),
+            'searchUrl' => ns()->url( '/api/products/search' ),
+        ] );
+    }
+
     public function getProcuredProducts( Product $product )
     {
         return $product->procurementHistory->map( function ( $procurementProduct ) {
